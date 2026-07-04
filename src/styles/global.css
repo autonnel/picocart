@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+@source "../components/**/*.{astro,tsx,ts,jsx,js}";
+@source "../pages/**/*.{astro,tsx,ts,jsx,js}";
+@source "../layouts/**/*.{astro,tsx,ts,jsx,js}";
+
+/* ============================================
+   shadcn/ui CSS variables
+   ============================================ */
+@layer base {
+  :root {
+    --background: hsl(0 0% 100%);
+    --foreground: hsl(240 10% 3.9%);
+    --card: hsl(0 0% 100%);
+    --card-foreground: hsl(240 10% 3.9%);
+    --popover: hsl(0 0% 100%);
+    --popover-foreground: hsl(240 10% 3.9%);
+    --primary: hsl(221 83% 53%);
+    --primary-foreground: hsl(0 0% 100%);
+    --secondary: hsl(240 4.8% 95.9%);
+    --secondary-foreground: hsl(240 5.9% 10%);
+    --muted: hsl(240 4.8% 95.9%);
+    --muted-foreground: hsl(240 3.8% 46.1%);
+    --accent: hsl(240 4.8% 95.9%);
+    --accent-foreground: hsl(240 5.9% 10%);
+    --destructive: hsl(0 84.2% 60.2%);
+    --destructive-foreground: hsl(0 0% 98%);
+    --border: hsl(240 5.9% 90%);
+    --input: hsl(240 5.9% 90%);
+    --ring: hsl(221 83% 53%);
+    --radius: 0.5rem;
+  }
+
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+
+  html {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-height: 100vh;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* ============================================
+   Picocart Design System tokens.
+   Prefixed with `ds-` to avoid colliding with shadcn theming.
+   ============================================ */
+@theme {
+  --color-ds-app: #F7F7F8;
+  --color-ds-card: #FFFFFF;
+  --color-ds-surface2: #FAFAFB;
+  --color-ds-console: #1F2937;
+
+  --color-ds-ink: #111827;
+  --color-ds-slate: #4B5563;
+  --color-ds-muted: #6B7280;
+  --color-ds-faint: #9CA3AF;
+
+  --color-ds-line: #E5E7EB;
+  --color-ds-linehi: #D1D5DB;
+
+  --color-ds-accent: #2563EB;
+
+  --color-ds-ok: #16A34A;
+  --color-ds-warn: #D97706;
+  --color-ds-bad: #DC2626;
+
+  --color-ds-okBg: #F0FDF4;
+  --color-ds-okBorder: #BBF7D0;
+  --color-ds-okText: #166534;
+  --color-ds-warnBg: #FFF7ED;
+  --color-ds-warnBorder: #FED7AA;
+  --color-ds-warnText: #9A3412;
+  --color-ds-badBg: #FEF2F2;
+  --color-ds-badBorder: #FECACA;
+  --color-ds-badText: #991B1B;
+
+  --font-ds-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-ds-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --animate-softblink: softblink 1.6s ease-in-out infinite;
+}
+
+@keyframes softblink {
+  50% { opacity: .4; }
+}
+
+.font-ds-sans {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+.font-ds-mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-feature-settings: "tnum","cv11";
+}
+
+.animate-softblink {
+  animation: softblink 1.6s ease-in-out infinite;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+@layer components {
+  .btn-primary {
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border: 1px solid var(--primary);
+    border-radius: 8px;
+    padding: 9px 16px;
+    font-weight: 500;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+  }
+
+  .btn-primary:hover {
+    background: color-mix(in srgb, var(--primary) 90%, black);
+  }
+
+  .btn-secondary {
+    background: var(--card);
+    color: var(--foreground);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 16px;
+    font-weight: 500;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+  }
+
+  .btn-secondary:hover {
+    background: var(--muted);
+  }
+}

@@ -1,0 +1,194 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/permissions';
+import { getOrderRepository } from '@/lib/repositories/order.repository';
+import { prisma } from '@/lib/db';
+import { withTenantWhere } from '@/lib/repositories/tenant-helpers';
+import type { OrderFinancialStatus, OrderFulfillmentStatus } from '@prisma/client';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.ORDERS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const url = new URL(Astro.request.url);
+const sp = url.searchParams;
+
+const FIN_VALUES: OrderFinancialStatus[] = ['PENDING', 'PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'];
+const FUL_VALUES: OrderFulfillmentStatus[] = ['UNFULFILLED', 'SHIPPED', 'DELIVERED'];
+
+const finRaw = sp.get('financialStatus') || '';
+const fulRaw = sp.get('fulfillmentStatus') || '';
+const financialStatus: OrderFinancialStatus | undefined = FIN_VALUES.includes(finRaw as OrderFinancialStatus)
+  ? (finRaw as OrderFinancialStatus)
+  : undefined;
+const fulfillmentStatus: OrderFulfillmentStatus | undefined = FUL_VALUES.includes(fulRaw as OrderFulfillmentStatus)
+  ? (fulRaw as OrderFulfillmentStatus)
+  : undefined;
+
+const limit = 25;
+const sinceId = sp.get('sinceId') || undefined;
+
+const repo = getOrderRepository();
+const fetched = await repo.list({ financialStatus, fulfillmentStatus, sinceId, limit: limit + 1 });
+const hasMore = fetched.length > limit;
+const items = hasMore ? fetched.slice(0, limit) : fetched;
+const lastId = items.length > 0 ? items[items.length - 1].id : null;
+
+const customerIds = Array.from(new Set(items.map((o) => o.customerId).filter((c): c is string => !!c)));
+const customers = customerIds.length
+  ? await prisma.customer.findMany({
+      where: withTenantWhere({ id: { in: customerIds } }),
+      select: { id: true, email: true, firstName: true, lastName: true },
+    })
+  : [];
+const customerMap = new Map(customers.map((c) => [c.id, c]));
+
+function chipHref(name: 'financialStatus' | 'fulfillmentStatus', value?: string): string {
+  const params = new URLSearchParams(url.searchParams);
+  params.delete('sinceId');
+  if (value) params.set(name, value);
+  else params.delete(name);
+  const qs = params.toString();
+  return `/orders${qs ? `?${qs}` : ''}`;
+}
+
+function nextHref(): string {
+  if (!lastId) return '#';
+  const params = new URLSearchParams(url.searchParams);
+  params.set('sinceId', lastId);
+  return `/orders?${params.toString()}`;
+}
+
+function finTone(s: OrderFinancialStatus): string {
+  if (s === 'PAID') return 'bg-ds-okBg border-ds-okBorder text-ds-okText';
+  if (s === 'PENDING') return 'bg-ds-warnBg border-ds-warnBorder text-ds-warnText';
+  if (s === 'REFUNDED') return 'bg-ds-badBg border-ds-badBorder text-ds-badText';
+  return 'bg-ds-surface2 border-ds-line text-ds-muted';
+}
+
+function fulTone(s: OrderFulfillmentStatus): string {
+  if (s === 'DELIVERED') return 'bg-ds-okBg border-ds-okBorder text-ds-okText';
+  if (s === 'SHIPPED') return 'bg-ds-okBg border-ds-okBorder text-ds-okText';
+  return 'bg-ds-surface2 border-ds-line text-ds-muted';
+}
+
+function fmtAmount(amount: any, currency: string): string {
+  const n = Number(amount);
+  if (!isFinite(n)) return '—';
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(n);
+  } catch {
+    return `${n.toFixed(2)} ${currency}`;
+  }
+}
+
+function fmtDate(d: Date): string {
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+---
+
+<AdminLayout title="Orders" activeNav="orders">
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+    <div class="px-6 pt-5 pb-4">
+      <div class="text-[14px] font-semibold text-ds-ink">All orders</div>
+      <div class="text-[12.5px] text-ds-muted mt-0.5">
+        Showing <span class="font-ds-mono tabular">{items.length}</span> orders
+      </div>
+    </div>
+
+    <div class="px-6 pb-4 space-y-2">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-[11.5px] uppercase tracking-[0.04em] text-ds-faint mr-1">Payment</span>
+        {[undefined, ...FIN_VALUES].map((v) => {
+          const active = (v ?? undefined) === financialStatus;
+          const cls = active
+            ? 'inline-flex items-center gap-1 rounded-[6px] border px-2 py-[2px] text-[11.5px] font-medium leading-tight bg-ds-ink border-ds-ink text-ds-card no-underline'
+            : 'inline-flex items-center gap-1 rounded-[6px] border px-2 py-[2px] text-[11.5px] font-medium leading-tight bg-ds-surface2 border-ds-line text-ds-slate hover:text-ds-ink no-underline';
+          return (
+            <a href={chipHref('financialStatus', v)} class={cls}>{v ?? 'All'}</a>
+          );
+        })}
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-[11.5px] uppercase tracking-[0.04em] text-ds-faint mr-1">Fulfillment</span>
+        {[undefined, ...FUL_VALUES].map((v) => {
+          const active = (v ?? undefined) === fulfillmentStatus;
+          const cls = active
+            ? 'inline-flex items-center gap-1 rounded-[6px] border px-2 py-[2px] text-[11.5px] font-medium leading-tight bg-ds-ink border-ds-ink text-ds-card no-underline'
+            : 'inline-flex items-center gap-1 rounded-[6px] border px-2 py-[2px] text-[11.5px] font-medium leading-tight bg-ds-surface2 border-ds-line text-ds-slate hover:text-ds-ink no-underline';
+          return (
+            <a href={chipHref('fulfillmentStatus', v)} class={cls}>{v ?? 'All'}</a>
+          );
+        })}
+      </div>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full border-collapse">
+        <thead class="bg-ds-surface2 border-b border-ds-line">
+          <tr>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Order #</th>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Date</th>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Customer</th>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Items</th>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Total</th>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Payment</th>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Fulfillment</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr>
+              <td colspan="7" class="px-4 py-10 text-center text-[13px] text-ds-muted">No orders yet.</td>
+            </tr>
+          ) : items.map((o) => {
+            const customer = o.customerId ? customerMap.get(o.customerId) : null;
+            const customerLabel = customer
+              ? [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim() || customer.email
+              : o.email || '—';
+            const itemCount = o.lineItems.reduce((s, li) => s + li.quantity, 0);
+            return (
+              <tr class="hover:bg-ds-surface2 transition-colors">
+                <td class="px-4 py-3 text-[13.5px] border-b border-[#F3F4F6]">
+                  <a href={`/orders/${o.id}`} class="text-ds-ink font-medium hover:underline no-underline font-ds-mono tabular">
+                    #{o.orderNumber}
+                  </a>
+                </td>
+                <td class="px-4 py-3 text-[13.5px] text-ds-slate border-b border-[#F3F4F6]">{fmtDate(o.createdAt)}</td>
+                <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6]">{customerLabel}</td>
+                <td class="px-4 py-3 text-[13.5px] text-ds-ink font-ds-mono tabular border-b border-[#F3F4F6] text-right">{itemCount}</td>
+                <td class="px-4 py-3 text-[13.5px] text-ds-ink font-ds-mono tabular border-b border-[#F3F4F6] text-right">{fmtAmount(o.totalPrice, o.currencyCode)}</td>
+                <td class="px-4 py-3 text-[13.5px] border-b border-[#F3F4F6]">
+                  <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[2px] text-[11.5px] font-medium leading-none ${finTone(o.financialStatus)}`}>
+                    {o.financialStatus.toLowerCase().replaceAll('_', ' ')}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-[13.5px] border-b border-[#F3F4F6]">
+                  <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[2px] text-[11.5px] font-medium leading-none ${fulTone(o.fulfillmentStatus)}`}>
+                    {o.fulfillmentStatus.toLowerCase()}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="px-6 py-3 flex items-center justify-end gap-2 border-t border-ds-line">
+      <button disabled class="h-8 px-3 text-[13px] rounded-[7px] border border-ds-line bg-ds-card text-ds-muted opacity-50">Previous</button>
+      {hasMore ? (
+        <a href={nextHref()} class="inline-flex items-center justify-center h-8 px-3 text-[13px] rounded-[7px] border border-ds-line bg-ds-card text-ds-ink hover:bg-[#F9FAFB] no-underline">Next</a>
+      ) : (
+        <button disabled class="h-8 px-3 text-[13px] rounded-[7px] border border-ds-line bg-ds-card text-ds-muted opacity-50">Next</button>
+      )}
+    </div>
+  </div>
+</AdminLayout>

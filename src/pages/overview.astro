@@ -1,0 +1,63 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/permissions';
+import { loadOverviewMetrics } from '@/lib/dashboard/overview';
+import { getCurrencyConfig } from '@/lib/dashboard/currencies';
+import Stat from '@/components/ui/ds/Stat';
+import Card from '@/components/ui/ds/Card';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.OVERVIEW);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const currencyConfig = await getCurrencyConfig();
+const metrics = await loadOverviewMetrics(currencyConfig.default);
+
+function fmtCurrency(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`;
+  }
+}
+---
+
+<AdminLayout title="Overview" activeNav="overview">
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+    <Card>
+      <Stat label="Active products" value={metrics.activeProducts} />
+    </Card>
+    <Card>
+      <Stat label="Orders (30d)" value={metrics.ordersLast30d} />
+    </Card>
+    <Card>
+      <Stat
+        label="Revenue (30d)"
+        value={fmtCurrency(metrics.revenueLast30d, metrics.defaultCurrency)}
+      />
+    </Card>
+    <Card>
+      <Stat label="Pending orders" value={metrics.pendingOrders} />
+    </Card>
+  </div>
+
+  <div class="mt-6">
+    <Card title="Welcome to Picocart" subtitle="Your headless commerce backend">
+      <p class="text-[13px] text-ds-slate">
+        Manage your catalog, orders, and customers from this dashboard. Configure your
+        store details under Settings.
+      </p>
+    </Card>
+  </div>
+</AdminLayout>

@@ -1,0 +1,374 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =====================================================
+// Tenant (root container; SaaS overlay maps separately)
+// =====================================================
+
+model Tenant {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tenants")
+}
+
+// =====================================================
+// Admin and Authentication
+// =====================================================
+
+// Authentication strategies (mutually exclusive per row):
+//   - username/password: `username` + `passwordHash` set, `provider`/`providerId` null
+//   - external IdP (e.g. plugin-oauth2): `provider` + `providerId` set, `passwordHash` null
+model User {
+  id                 String           @id @default(cuid())
+  tenantId           String           @default("default")
+  provider           String?
+  providerId         String?
+  username           String?
+  passwordHash       String?
+  email              String?
+  name               String?
+  avatar             String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  sessions           Session[]
+  roles              UserRole[]
+  apiKeys            ApiKey[]
+  invitationsCreated UserInvitation[] @relation("InvitationInvitedBy")
+
+  @@unique([tenantId, provider, providerId])
+  @@unique([tenantId, username])
+  @@index([tenantId])
+  @@map("users")
+}
+
+// Per-tenant user invitations issued by an admin. Token is single-use; once
+// consumed (acceptedAt set) it cannot be reused. Expired tokens are rejected
+// at registration time.
+model UserInvitation {
+  id          String    @id @default(cuid())
+  tenantId    String    @default("default")
+  email       String
+  invitedById String?
+  invitedBy   User?     @relation("InvitationInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  token       String    @unique
+  role        String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([email])
+  @@map("user_invitations")
+}
+
+// User-role assignment (maps users to DB-driven roles)
+model UserRole {
+  id        String   @id @default(cuid())
+  tenantId  String   @default("default")
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+  @@index([tenantId])
+  @@map("user_roles")
+}
+
+// Role - DB-driven role definitions. Two system roles (admin, viewer) are
+// seeded on boot and cannot be deleted.
+model Role {
+  id          String        @id @default(cuid())
+  tenantId    String        @default("default")
+  name        String
+  description String?
+  isSystem    Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  features    RoleFeature[]
+  userRoles   UserRole[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+// RoleFeature - mapping of a role to a featureId (matches FEATURES catalog).
+model RoleFeature {
+  id        String   @id @default(cuid())
+  tenantId  String   @default("default")
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  featureId String
+  createdAt DateTime @default(now())
+
+  @@unique([roleId, featureId])
+  @@index([featureId])
+  @@index([tenantId])
+  @@map("role_features")
+}
+
+// API keys for external API access (Shopify-compat header auth lives here too).
+model ApiKey {
+  id          String    @id @default(cuid())
+  tenantId    String    @default("default")
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String    @default("Default")
+  key         String    @unique
+  keyHash     String    @unique
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  writeAccess Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([keyHash])
+  @@index([tenantId])
+  @@map("api_keys")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tenantId  String   @default("default")
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("sessions")
+}
+
+// =====================================================
+// Application KV Configuration
+// =====================================================
+
+// Generic per-tenant key/value store for env-style overrides.
+// Read order: KV row -> env fallback -> undefined.
+model AppConfig {
+  id        String   @id @default(cuid())
+  tenantId  String   @default("default")
+  key       String
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("app_configs")
+}
+
+// =====================================================
+// Catalog
+// =====================================================
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+}
+
+model Product {
+  id             String           @id @default(cuid())
+  tenantId       String           @default("default")
+  handle         String
+  title          String
+  description    String?
+  status         ProductStatus    @default(ACTIVE)
+  trackInventory Boolean          @default(false)
+  vendor         String?
+  productType    String?
+  tags           String[]
+  variants       ProductVariant[]
+  images         ProductImage[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([tenantId, handle])
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("products")
+}
+
+model ProductVariant {
+  id                String          @id @default(cuid())
+  productId         String
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku               String?
+  title             String
+  position          Int             @default(0)
+  inventoryQuantity Int             @default(0)
+  weight            Float?
+  weightUnit        String?
+  barcode           String?
+  requiresShipping  Boolean         @default(true)
+  prices            VariantPrice[]
+  options           VariantOption[]
+  imageId           String?
+  image             ProductImage?   @relation(fields: [imageId], references: [id])
+  lineItems         OrderLineItem[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([productId])
+  @@index([sku])
+  @@map("product_variants")
+}
+
+model VariantPrice {
+  id             String         @id @default(cuid())
+  variantId      String
+  variant        ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  currencyCode   String
+  price          Decimal        @db.Decimal(12, 2)
+  compareAtPrice Decimal?       @db.Decimal(12, 2)
+
+  @@unique([variantId, currencyCode])
+  @@map("variant_prices")
+}
+
+model VariantOption {
+  id        String         @id @default(cuid())
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  name      String
+  value     String
+  position  Int            @default(0)
+
+  @@index([variantId])
+  @@map("variant_options")
+}
+
+model ProductImage {
+  id        String           @id @default(cuid())
+  productId String
+  product   Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  src       String
+  alt       String?
+  position  Int              @default(0)
+  variants  ProductVariant[]
+  createdAt DateTime         @default(now())
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+// =====================================================
+// Orders
+// =====================================================
+
+enum OrderFinancialStatus {
+  PENDING
+  PAID
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+enum OrderFulfillmentStatus {
+  UNFULFILLED
+  SHIPPED
+  DELIVERED
+}
+
+model Order {
+  id                String                 @id @default(cuid())
+  tenantId          String                 @default("default")
+  orderNumber       String
+  email             String?
+  financialStatus   OrderFinancialStatus   @default(PENDING)
+  fulfillmentStatus OrderFulfillmentStatus @default(UNFULFILLED)
+  totalPrice        Decimal                @db.Decimal(12, 2)
+  subtotalPrice     Decimal                @db.Decimal(12, 2)
+  taxPrice          Decimal                @default(0) @db.Decimal(12, 2)
+  shippingPrice     Decimal                @default(0) @db.Decimal(12, 2)
+  discountPrice     Decimal                @default(0) @db.Decimal(12, 2)
+  currencyCode      String
+  customerId        String?
+  customer          Customer?              @relation(fields: [customerId], references: [id])
+  shippingAddress   Json?
+  billingAddress    Json?
+  note              String?
+  externalSource    String?
+  externalRef       String?
+  trackingNumber    String?
+  trackingCompany   String?
+  lineItems         OrderLineItem[]
+  refunds           OrderRefund[]
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@unique([tenantId, orderNumber])
+  @@index([tenantId])
+  @@index([tenantId, financialStatus])
+  @@index([tenantId, fulfillmentStatus])
+  @@index([tenantId, externalSource, externalRef])
+  @@map("orders")
+}
+
+model OrderLineItem {
+  id            String          @id @default(cuid())
+  orderId       String
+  order         Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId     String?
+  variant       ProductVariant? @relation(fields: [variantId], references: [id])
+  productId     String?
+  title         String
+  variantTitle  String?
+  sku           String?
+  quantity      Int
+  price         Decimal         @db.Decimal(12, 2)
+  totalDiscount Decimal         @default(0) @db.Decimal(12, 2)
+
+  @@index([orderId])
+  @@map("order_line_items")
+}
+
+model OrderRefund {
+  id           String   @id @default(cuid())
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount       Decimal  @db.Decimal(12, 2)
+  currencyCode String
+  reason       String?
+  refundedAt   DateTime @default(now())
+
+  @@index([orderId])
+  @@map("order_refunds")
+}
+
+// =====================================================
+// Customers
+// =====================================================
+
+model Customer {
+  id          String   @id @default(cuid())
+  tenantId    String   @default("default")
+  email       String
+  firstName   String?
+  lastName    String?
+  phone       String?
+  ordersCount Int      @default(0)
+  totalSpent  Decimal  @default(0) @db.Decimal(14, 2)
+  orders      Order[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("customers")
+}

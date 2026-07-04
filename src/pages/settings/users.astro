@@ -1,0 +1,26 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES, getPermissionRepository } from '@/lib/permissions';
+import UsersPanel from '@/components/settings/UsersPanel';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) return Astro.redirect('/login');
+
+const allowed = await userHasFeature(auth.user.id, FEATURES.SETTINGS_USERS);
+if (!allowed) return Astro.redirect('/');
+
+const permRepo = getPermissionRepository();
+const allRoles = await permRepo.listRoles();
+const users = await permRepo.listAllUsersWithRoles();
+---
+
+<AdminLayout title="Users" activeNav="settings.users">
+  <div class="bg-ds-card border border-ds-line rounded-[10px] p-6 shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+    <UsersPanel
+      client:load
+      initial={users}
+      roles={allRoles.map((r) => ({ id: r.id, name: r.name }))}
+    />
+  </div>
+</AdminLayout>

@@ -1,0 +1,129 @@
+{
+  "name": "picocart",
+  "version": "0.0.1",
+  "description": "Picocart — Open-source headless commerce, distributed as an Astro Integration",
+  "license": "Apache-2.0",
+  "author": "autonnel team",
+  "homepage": "https://autonnel.com/picocart",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/autonnel/picocart.git"
+  },
+  "bugs": {
+    "url": "https://github.com/autonnel/picocart/issues"
+  },
+  "type": "module",
+  "main": "./dist/integration/index.js",
+  "bin": {
+    "picocart": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/integration/index.d.ts",
+      "import": "./dist/integration/index.js"
+    },
+    "./cli": {
+      "import": "./dist/cli/index.js"
+    },
+    "./adapters/*": {
+      "import": "./dist/lib/adapters/*/index.js"
+    },
+    "./schema": "./prisma/schema.prisma",
+    "./tenant": {
+      "types": "./dist/lib/tenant/index.d.ts",
+      "import": "./dist/lib/tenant/index.js"
+    },
+    "./middleware": "./src/middleware.ts",
+    "./pages/*": "./src/pages/*",
+    "./components/*": "./src/components/*",
+    "./lib/*": "./src/lib/*",
+    "./layouts/*": "./src/layouts/*",
+    "./styles/*": "./src/styles/*"
+  },
+  "files": [
+    "dist",
+    "prisma/schema.prisma",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "headless-commerce",
+    "ecommerce",
+    "astro",
+    "shopify-compat"
+  ],
+  "scripts": {
+    "clean:cache": "node scripts/clean-cache.mjs",
+    "dev": "npm run clean:cache && npx prisma generate && astro dev",
+    "build": "npx prisma generate && astro build",
+    "start": "node ./dist/server/entry.mjs",
+    "build:package": "node scripts/build-package.mjs",
+    "prepublishOnly": "npm run build:package",
+    "generate:wrangler": "node scripts/generate-wrangler.mjs",
+    "build:cf": "npx prisma generate && astro build --config astro.config.cloudflare.mjs",
+    "dev:cf": "npm run clean:cache && npx prisma generate && astro dev --config astro.config.cloudflare.mjs",
+    "deploy:cf": "npm run generate:wrangler && npm run build:cf && wrangler deploy",
+    "preview:cf": "npm run generate:wrangler && npm run build:cf && wrangler dev",
+    "db:push": "npx prisma db push",
+    "db:migrate": "npx prisma migrate dev",
+    "db:studio": "npx prisma studio",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "verify:types": "bash scripts/verify/check-types.sh",
+    "verify:tests": "bash scripts/verify/check-tests.sh",
+    "verify:schema": "bash scripts/verify/check-schema.sh",
+    "verify:cf": "bash scripts/verify/check-cf-bundle.sh",
+    "verify": "bash scripts/verify/verify-all.sh"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^13.1.8",
+    "@astrojs/node": "^10.0.4",
+    "@astrojs/react": "^5.0.3",
+    "@fontsource-variable/space-grotesk": "^5.2.10",
+    "@fontsource/plus-jakarta-sans": "^5.2.8",
+    "@prisma/adapter-pg": "^7.1.0",
+    "@prisma/client": "^7.1.0",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-label": "^2.1.8",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/uuid": "^10.0.0",
+    "astro": "^6.1.5",
+    "aws4fetch": "^1.0.20",
+    "bcryptjs": "^3.0.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dotenv": "^16.5.0",
+    "ioredis": "^5.9.1",
+    "lucide-react": "^0.562.0",
+    "pg": "^8.16.3",
+    "prisma": "^7.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.1.18",
+    "uuid": "^13.0.0",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260410.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.19.1",
+    "@types/pg": "^8.16.0",
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "@vitest/coverage-v8": "^3.2.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.81.1"
+  }
+}

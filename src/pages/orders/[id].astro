@@ -1,0 +1,224 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/permissions';
+import { getOrderRepository } from '@/lib/repositories/order.repository';
+import { prisma } from '@/lib/db';
+import { withTenantWhere } from '@/lib/repositories/tenant-helpers';
+import OrderItems from '@/components/orders/OrderItems';
+import AddressBlock from '@/components/orders/AddressBlock';
+import RefundButton from '@/components/orders/RefundButton';
+import OrderTrackingForm from '@/components/orders/OrderTrackingForm';
+import StatusDot from '@/components/ui/ds/StatusDot';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.ORDERS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+const canRefund = await userHasFeature(auth.user.id, FEATURES.ORDERS_REFUND);
+
+const id = Astro.params.id;
+if (!id) return Astro.redirect('/orders');
+
+const repo = getOrderRepository();
+const order = await repo.getById(id);
+if (!order) return Astro.redirect('/orders');
+
+const customer = order.customerId
+  ? await prisma.customer.findFirst({ where: withTenantWhere({ id: order.customerId }) })
+  : null;
+
+const refundedSoFar = order.refunds.reduce((s, r) => s + Number(r.amount), 0);
+const totalPrice = Number(order.totalPrice);
+const remaining = Math.max(0, totalPrice - refundedSoFar);
+
+function fmtAmount(amount: any, currency: string): string {
+  const n = Number(amount);
+  if (!isFinite(n)) return '—';
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(n);
+  } catch {
+    return `${n.toFixed(2)} ${currency}`;
+  }
+}
+
+function fmtDate(d: Date): string {
+  return d.toLocaleString('en-US', {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function finStatus(): { dot: 'ok' | 'warn' | 'bad' | 'idle'; label: string } {
+  switch (order.financialStatus) {
+    case 'PAID': return { dot: 'ok', label: 'Paid' };
+    case 'PENDING': return { dot: 'warn', label: 'Pending' };
+    case 'PARTIALLY_REFUNDED': return { dot: 'warn', label: 'Partially refunded' };
+    case 'REFUNDED': return { dot: 'bad', label: 'Refunded' };
+    default: return { dot: 'idle', label: order.financialStatus };
+  }
+}
+function fulStatus(): { dot: 'ok' | 'warn' | 'bad' | 'idle'; label: string } {
+  switch (order.fulfillmentStatus) {
+    case 'DELIVERED': return { dot: 'ok', label: 'Delivered' };
+    case 'SHIPPED': return { dot: 'ok', label: 'Shipped' };
+    case 'UNFULFILLED': return { dot: 'idle', label: 'Unfulfilled' };
+    default: return { dot: 'idle', label: order.fulfillmentStatus };
+  }
+}
+const fin = finStatus();
+const ful = fulStatus();
+
+const customerName = customer
+  ? [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim() || customer.email
+  : order.email || '—';
+
+const breadcrumbs = [
+  { label: 'Picocart', href: '/' },
+  { label: 'Orders', href: '/orders' },
+  { label: `#${order.orderNumber}` },
+];
+---
+
+<AdminLayout
+  title={`Order #${order.orderNumber}`}
+  activeNav="orders"
+  breadcrumbs={breadcrumbs}
+>
+  <div class="space-y-5">
+    <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] px-6 py-5 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-6 flex-wrap">
+        <div>
+          <div class="text-[11.5px] uppercase tracking-[0.04em] text-ds-faint">Order placed</div>
+          <div class="text-[13px] text-ds-ink">{fmtDate(order.createdAt)}</div>
+        </div>
+        <div>
+          <div class="text-[11.5px] uppercase tracking-[0.04em] text-ds-faint">Payment</div>
+          <div class="text-[13px] text-ds-ink flex items-center gap-1.5">
+            <StatusDot client:load status={fin.dot} /> {fin.label}
+          </div>
+        </div>
+        <div>
+          <div class="text-[11.5px] uppercase tracking-[0.04em] text-ds-faint">Fulfillment</div>
+          <div class="text-[13px] text-ds-ink flex items-center gap-1.5">
+            <StatusDot client:load status={ful.dot} /> {ful.label}
+          </div>
+        </div>
+        <div>
+          <div class="text-[11.5px] uppercase tracking-[0.04em] text-ds-faint">Total</div>
+          <div class="text-[13px] text-ds-ink font-ds-mono tabular">{fmtAmount(order.totalPrice, order.currencyCode)}</div>
+        </div>
+      </div>
+      {canRefund && (
+        <RefundButton
+          client:load
+          orderId={order.id}
+          totalPrice={totalPrice}
+          refundedSoFar={refundedSoFar}
+          currencyCode={order.currencyCode}
+        />
+      )}
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div class="lg:col-span-2 space-y-5">
+        <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+          <div class="px-6 pt-5 pb-3 text-[14px] font-semibold text-ds-ink">Items</div>
+          <OrderItems client:load lineItems={order.lineItems.map(li => ({
+            id: li.id,
+            title: li.title,
+            variantTitle: li.variantTitle,
+            sku: li.sku,
+            quantity: li.quantity,
+            price: Number(li.price),
+            totalDiscount: Number(li.totalDiscount),
+          }))} currencyCode={order.currencyCode} />
+          <div class="px-6 py-4 border-t border-ds-line text-[13px] text-ds-ink space-y-1">
+            <div class="flex justify-between"><span class="text-ds-muted">Subtotal</span><span class="font-ds-mono tabular">{fmtAmount(order.subtotalPrice, order.currencyCode)}</span></div>
+            <div class="flex justify-between"><span class="text-ds-muted">Shipping</span><span class="font-ds-mono tabular">{fmtAmount(order.shippingPrice, order.currencyCode)}</span></div>
+            <div class="flex justify-between"><span class="text-ds-muted">Tax</span><span class="font-ds-mono tabular">{fmtAmount(order.taxPrice, order.currencyCode)}</span></div>
+            <div class="flex justify-between"><span class="text-ds-muted">Discount</span><span class="font-ds-mono tabular">-{fmtAmount(order.discountPrice, order.currencyCode)}</span></div>
+            <div class="flex justify-between font-semibold pt-1 border-t border-ds-line"><span>Total</span><span class="font-ds-mono tabular">{fmtAmount(order.totalPrice, order.currencyCode)}</span></div>
+          </div>
+        </div>
+
+        <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] p-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <AddressBlock client:load title="Shipping address" address={order.shippingAddress} />
+          <AddressBlock client:load title="Billing address" address={order.billingAddress} />
+        </div>
+
+        <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+          <div class="px-6 pt-5 pb-3 text-[14px] font-semibold text-ds-ink">Refunds</div>
+          <div class="px-6 pb-5 space-y-2">
+            {order.refunds.length === 0 ? (
+              <div class="text-[12.5px] text-ds-muted">No refunds.</div>
+            ) : order.refunds.map((r) => (
+              <div class="flex items-center justify-between text-[13px] border border-ds-line rounded-[8px] px-3 py-2">
+                <div>
+                  <div class="font-medium text-ds-ink font-ds-mono tabular">{fmtAmount(r.amount, r.currencyCode)}</div>
+                  {r.reason && <div class="text-[12px] text-ds-muted">{r.reason}</div>}
+                </div>
+                <div class="text-[12px] text-ds-muted">{fmtDate(r.refundedAt)}</div>
+              </div>
+            ))}
+            <div class="text-[12px] text-ds-muted">
+              Refunded total: <span class="font-ds-mono tabular">{fmtAmount(refundedSoFar, order.currencyCode)}</span>
+              {' · '}Remaining: <span class="font-ds-mono tabular">{fmtAmount(remaining, order.currencyCode)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] p-6">
+          <div class="text-[14px] font-semibold text-ds-ink mb-3">Tracking</div>
+          <OrderTrackingForm
+            client:load
+            orderId={order.id}
+            initialNumber={order.trackingNumber}
+            initialCompany={order.trackingCompany}
+            initialFulfillmentStatus={order.fulfillmentStatus}
+          />
+        </div>
+      </div>
+
+      <div class="space-y-5">
+        <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] p-6">
+          <div class="text-[14px] font-semibold text-ds-ink mb-3">Customer</div>
+          <div class="text-[13px] text-ds-ink space-y-1">
+            <div class="font-medium">{customerName}</div>
+            {customer?.email && <div class="text-ds-slate">{customer.email}</div>}
+            {customer?.phone && <div class="text-ds-slate">{customer.phone}</div>}
+          </div>
+          {customer && (
+            <div class="text-[12.5px] text-ds-muted mt-3 flex items-center gap-3">
+              <div>Orders: <span class="font-ds-mono tabular text-ds-ink">{customer.ordersCount}</span></div>
+              <div>Total spent: <span class="font-ds-mono tabular text-ds-ink">{fmtAmount(customer.totalSpent, order.currencyCode)}</span></div>
+            </div>
+          )}
+          {customer && (
+            <div class="mt-3">
+              <a href={`/customers/${customer.id}`} class="text-[12.5px] text-ds-accent hover:underline no-underline">View customer →</a>
+            </div>
+          )}
+        </div>
+
+        <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)] p-6">
+          <div class="text-[14px] font-semibold text-ds-ink mb-3">Timeline</div>
+          <ul class="space-y-2 text-[13px]">
+            <li class="flex justify-between">
+              <span class="text-ds-ink">Order created</span>
+              <span class="text-ds-muted">{fmtDate(order.createdAt)}</span>
+            </li>
+            <li class="flex justify-between">
+              <span class="text-ds-ink">Last update</span>
+              <span class="text-ds-muted">{fmtDate(order.updatedAt)}</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</AdminLayout>

@@ -1,0 +1,21 @@
+---
+// Reusable error page layout — wraps the centered card from
+// `src/components/layout/ErrorLayout.astro` so pages can use either entrypoint.
+
+import ComponentErrorLayout from '@/components/layout/ErrorLayout.astro';
+
+interface Props {
+  status: number;
+  title: string;
+  heading: string;
+  description: string;
+  detail?: string;
+  detailLabel?: string;
+}
+
+const props = Astro.props;
+---
+
+<ComponentErrorLayout {...props}>
+  <slot />
+</ComponentErrorLayout>

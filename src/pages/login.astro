@@ -1,0 +1,79 @@
+---
+import AuthLayout from '@/layouts/AuthLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+
+const auth = await checkAuth(Astro);
+if (auth.authenticated) {
+  return Astro.redirect('/overview', 302);
+}
+---
+
+<AuthLayout title="Sign in · Picocart">
+  <main class="min-h-screen flex items-center justify-center bg-ds-app p-6">
+    <div class="w-full max-w-sm">
+      <div class="bg-ds-card border border-ds-line rounded-[12px] p-6 shadow-sm">
+        <h1 class="text-[18px] font-semibold text-ds-ink mb-1">Sign in to picocart</h1>
+        <p class="text-[12px] text-ds-muted mb-5">Enter your username and password to continue.</p>
+
+        <form id="login-form" class="flex flex-col gap-3">
+          <label class="flex flex-col gap-1">
+            <span class="text-[12px] text-ds-muted">Username</span>
+            <input
+              required
+              autocomplete="username"
+              name="username"
+              class="h-9 px-3 text-[13px] bg-white border border-ds-line rounded-[7px] focus:outline-none focus:ring-2 focus:ring-ds-accent"
+            />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-[12px] text-ds-muted">Password</span>
+            <input
+              required
+              autocomplete="current-password"
+              name="password"
+              type="password"
+              class="h-9 px-3 text-[13px] bg-white border border-ds-line rounded-[7px] focus:outline-none focus:ring-2 focus:ring-ds-accent"
+            />
+          </label>
+          <p id="login-error" class="text-[12px] text-red-600 hidden"></p>
+          <button
+            type="submit"
+            class="h-9 px-3 text-[13px] font-medium rounded-[7px] bg-ds-ink text-ds-card hover:bg-[#1F2937] transition-colors"
+          >
+            Sign in
+          </button>
+        </form>
+
+        <p class="text-[12px] text-ds-muted mt-4">
+          New deployment?
+          <a href="/register" class="text-ds-accent hover:underline">Set up admin account</a>
+        </p>
+      </div>
+    </div>
+  </main>
+</AuthLayout>
+
+<script is:inline>
+  const form = document.getElementById('login-form');
+  const errorEl = document.getElementById('login-error');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (errorEl) { errorEl.classList.add('hidden'); errorEl.textContent = ''; }
+    const data = new FormData(form);
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: data.get('username'),
+        password: data.get('password'),
+      }),
+    });
+    if (res.ok) {
+      window.location.href = '/overview';
+      return;
+    }
+    let message = 'Invalid credentials';
+    try { message = (await res.json()).error || message; } catch {}
+    if (errorEl) { errorEl.textContent = message; errorEl.classList.remove('hidden'); }
+  });
+</script>

@@ -1,0 +1,30 @@
+name = "${CF_WORKER_NAME}"
+main = "./src/cf-worker.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Astro cloudflare adapter outputs client assets here
+[assets]
+directory = "./dist/client"
+
+# Cloudflare KV namespace for caching (replaces Redis)
+[[kv_namespaces]]
+binding = "CACHE_KV"
+id = "${CF_KV_NAMESPACE_ID}"
+# preview_id = "${CF_KV_PREVIEW_NAMESPACE_ID}"
+
+# Hyperdrive connection pool for PostgreSQL (replaces direct pg.Pool)
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "${CF_HYPERDRIVE_CONFIG_ID}"
+# For local dev, wrangler needs a real Postgres URL to emulate Hyperdrive.
+localConnectionString = "${CF_HYPERDRIVE_LOCAL_CONNECTION_STRING}"
+
+[vars]
+LOG_LEVEL = "info"
+# All other env vars should be set via:
+#   wrangler secret put <SECRET_NAME>
+# Or in .dev.vars for local development
+
+[observability]
+enabled = true

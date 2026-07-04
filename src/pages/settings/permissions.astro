@@ -1,0 +1,40 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import {
+  FEATURES,
+  FEATURE_LABELS,
+  canAccessPermissionsPageAsync,
+  getPermissionRepository,
+} from '@/lib/permissions';
+import RolesPanel from '@/components/settings/RolesPanel';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) return Astro.redirect('/login');
+
+const allowed = await canAccessPermissionsPageAsync(auth.user.id, auth.user.providerId);
+if (!allowed) return Astro.redirect('/');
+
+const permRepo = getPermissionRepository();
+const allRoles = await permRepo.listRoles();
+const rolesWithFeatures = await Promise.all(
+  allRoles.map(async (r) => ({
+    id: r.id,
+    name: r.name,
+    description: r.description,
+    isSystem: r.isSystem,
+    features: await permRepo.listRoleFeatures(r.id),
+  })),
+);
+
+const featureCatalog = Object.values(FEATURES).map((f) => ({
+  id: f,
+  label: FEATURE_LABELS[f as keyof typeof FEATURE_LABELS] ?? f,
+}));
+---
+
+<AdminLayout title="Roles & Permissions" activeNav="settings.permissions">
+  <div class="bg-ds-card border border-ds-line rounded-[10px] p-6 shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+    <RolesPanel client:load initial={rolesWithFeatures} catalog={featureCatalog} />
+  </div>
+</AdminLayout>

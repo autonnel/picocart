@@ -1,0 +1,207 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/permissions';
+import { getProductRepository } from '@/lib/repositories/product.repository';
+import type { ProductStatus } from '@prisma/client';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.PRODUCTS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+const canWrite = await userHasFeature(auth.user.id, FEATURES.PRODUCTS_WRITE);
+
+const url = new URL(Astro.request.url);
+const sp = url.searchParams;
+
+const limit = 25;
+const sinceId = sp.get('sinceId') || undefined;
+const statusRaw = (sp.get('status') || '').toUpperCase();
+const status: ProductStatus | undefined =
+  statusRaw === 'ACTIVE' || statusRaw === 'DRAFT' || statusRaw === 'ARCHIVED'
+    ? (statusRaw as ProductStatus)
+    : undefined;
+const q = (sp.get('q') || '').trim();
+
+const repo = getProductRepository();
+const allMatching = await repo.list({ status, sinceId, limit: limit + 1 });
+const filtered = q
+  ? allMatching.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q.toLowerCase()) ||
+        p.handle.toLowerCase().includes(q.toLowerCase()),
+    )
+  : allMatching;
+const hasMore = filtered.length > limit;
+const items = hasMore ? filtered.slice(0, limit) : filtered;
+const lastId = items.length > 0 ? items[items.length - 1].id : null;
+
+function tabHref(s?: string): string {
+  const params = new URLSearchParams(url.searchParams);
+  params.delete('sinceId');
+  if (s) {
+    params.set('status', s);
+  } else {
+    params.delete('status');
+  }
+  const qs = params.toString();
+  return `/products${qs ? `?${qs}` : ''}`;
+}
+
+function nextHref(): string {
+  if (!lastId) return '#';
+  const params = new URLSearchParams(url.searchParams);
+  params.set('sinceId', lastId);
+  return `/products?${params.toString()}`;
+}
+
+function statusTone(s: ProductStatus): string {
+  if (s === 'ACTIVE') return 'bg-ds-okBg border-ds-okBorder text-ds-okText';
+  if (s === 'DRAFT') return 'bg-ds-warnBg border-ds-warnBorder text-ds-warnText';
+  return 'bg-ds-surface2 border-ds-line text-ds-muted';
+}
+
+const tabs: Array<{ key: string; label: string; statusValue?: ProductStatus }> = [
+  { key: 'all', label: 'All' },
+  { key: 'active', label: 'Active', statusValue: 'ACTIVE' },
+  { key: 'draft', label: 'Draft', statusValue: 'DRAFT' },
+  { key: 'archived', label: 'Archived', statusValue: 'ARCHIVED' },
+];
+---
+
+<AdminLayout title="Products" activeNav="products">
+  <div slot="header-actions">
+    {canWrite && (
+      <a
+        href="/products/new"
+        class="inline-flex items-center justify-center font-medium rounded-[7px] transition-colors h-8 px-3 text-[13px] gap-2 bg-ds-ink border border-ds-ink text-ds-card hover:bg-[#1F2937] no-underline"
+      >
+        New product
+      </a>
+    )}
+  </div>
+
+  <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+    <div class="px-6 pt-5 pb-4 flex items-start justify-between gap-4 flex-wrap">
+      <div class="min-w-0">
+        <div class="text-[14px] font-semibold text-ds-ink">All products</div>
+        <div class="text-[12.5px] text-ds-muted mt-0.5">
+          Showing <span class="font-ds-mono tabular">{items.length}</span> products
+        </div>
+      </div>
+      <form method="get" action="/products" class="flex items-center gap-2 shrink-0 flex-wrap">
+        {status && <input type="hidden" name="status" value={status} />}
+        <input
+          type="search"
+          name="q"
+          value={q}
+          placeholder="Search title or handle..."
+          class="h-8 px-3 text-[13px] rounded-[7px] border border-ds-line bg-ds-card text-ds-ink placeholder:text-ds-muted focus:outline-none focus:ring-2 focus:ring-ds-accent w-[240px]"
+        />
+        <button
+          type="submit"
+          class="h-8 px-3 text-[13px] rounded-[7px] border border-ds-line bg-ds-card text-ds-ink hover:bg-[#F9FAFB]"
+        >
+          Search
+        </button>
+      </form>
+    </div>
+
+    <div class="px-6 pb-3 flex items-center gap-2 flex-wrap">
+      {tabs.map((t) => {
+        const active = (t.statusValue ?? undefined) === status;
+        const cls = active
+          ? 'inline-flex items-center gap-1 rounded-[6px] border px-2 py-[2px] text-[11.5px] font-medium leading-tight bg-ds-ink border-ds-ink text-ds-card no-underline'
+          : 'inline-flex items-center gap-1 rounded-[6px] border px-2 py-[2px] text-[11.5px] font-medium leading-tight bg-ds-surface2 border-ds-line text-ds-slate hover:text-ds-ink no-underline';
+        return (
+          <a href={tabHref(t.statusValue)} class={cls}>{t.label}</a>
+        );
+      })}
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full border-collapse">
+        <thead class="bg-ds-surface2 border-b border-ds-line">
+          <tr>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Image</th>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Title</th>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Handle</th>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Status</th>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Variants</th>
+            <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Inventory</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr>
+              <td colspan="6" class="px-4 py-10 text-center text-[13px] text-ds-muted">
+                No products yet.
+              </td>
+            </tr>
+          ) : items.map((p) => {
+            const totalInventory = p.variants.reduce(
+              (s, v) => s + (v.inventoryQuantity ?? 0),
+              0,
+            );
+            const firstImage = p.images[0]?.src;
+            return (
+              <tr class="hover:bg-ds-surface2 transition-colors">
+                <td class="px-4 py-3 border-b border-[#F3F4F6]">
+                  {firstImage ? (
+                    <img src={firstImage} alt="" class="w-10 h-10 rounded-md object-cover border border-ds-line" />
+                  ) : (
+                    <div class="w-10 h-10 rounded-md bg-ds-surface2 border border-ds-line"></div>
+                  )}
+                </td>
+                <td class="px-4 py-3 text-[13.5px] text-ds-ink border-b border-[#F3F4F6]">
+                  <a href={`/products/${p.id}`} class="text-ds-ink font-medium hover:underline no-underline">
+                    {p.title}
+                  </a>
+                </td>
+                <td class="px-4 py-3 text-[13.5px] text-ds-slate font-ds-mono tabular border-b border-[#F3F4F6]">{p.handle}</td>
+                <td class="px-4 py-3 text-[13.5px] border-b border-[#F3F4F6]">
+                  <span class={`inline-flex items-center gap-1.5 rounded-full border px-2 py-[2px] text-[11.5px] font-medium leading-none ${statusTone(p.status)}`}>
+                    {p.status.toLowerCase()}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-[13.5px] text-ds-ink font-ds-mono tabular border-b border-[#F3F4F6] text-right">{p.variants.length}</td>
+                <td class="px-4 py-3 text-[13.5px] text-ds-ink font-ds-mono tabular border-b border-[#F3F4F6] text-right">
+                  {p.trackInventory ? totalInventory : '∞'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="px-6 py-3 flex items-center justify-end gap-2 border-t border-ds-line">
+      <button
+        disabled
+        class="h-8 px-3 text-[13px] rounded-[7px] border border-ds-line bg-ds-card text-ds-muted opacity-50"
+      >
+        Previous
+      </button>
+      {hasMore ? (
+        <a
+          href={nextHref()}
+          class="inline-flex items-center justify-center h-8 px-3 text-[13px] rounded-[7px] border border-ds-line bg-ds-card text-ds-ink hover:bg-[#F9FAFB] no-underline"
+        >
+          Next
+        </a>
+      ) : (
+        <button
+          disabled
+          class="h-8 px-3 text-[13px] rounded-[7px] border border-ds-line bg-ds-card text-ds-muted opacity-50"
+        >
+          Next
+        </button>
+      )}
+    </div>
+  </div>
+</AdminLayout>

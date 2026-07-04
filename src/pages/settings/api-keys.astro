@@ -1,0 +1,34 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/permissions';
+import { prisma } from '@/lib/db';
+import { withTenantWhere } from '@/lib/repositories/tenant-helpers';
+import ApiKeysPanel from '@/components/settings/ApiKeysPanel';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) return Astro.redirect('/login');
+
+const allowed = await userHasFeature(auth.user.id, FEATURES.SETTINGS_API_KEYS);
+if (!allowed) return Astro.redirect('/');
+
+const rows = await prisma.apiKey.findMany({
+  where: withTenantWhere({}),
+  orderBy: { createdAt: 'desc' },
+});
+const apiKeys = rows.map((k) => ({
+  id: k.id,
+  name: k.name,
+  writeAccess: k.writeAccess,
+  isActive: k.isActive,
+  keyPreview: k.key ? `${k.key.slice(0, 6)}...${k.key.slice(-4)}` : '',
+  createdAt: k.createdAt.toISOString(),
+  expiresAt: k.expiresAt ? k.expiresAt.toISOString() : null,
+}));
+---
+
+<AdminLayout title="API Keys" activeNav="settings.api-keys">
+  <div class="bg-ds-card border border-ds-line rounded-[10px] p-6 shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+    <ApiKeysPanel client:load initial={apiKeys} />
+  </div>
+</AdminLayout>

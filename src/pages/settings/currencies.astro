@@ -1,0 +1,21 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/permissions';
+import { getCurrencyConfig } from '@/lib/dashboard/currencies';
+import CurrenciesPanel from '@/components/settings/CurrenciesPanel';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) return Astro.redirect('/login');
+
+const allowed = await userHasFeature(auth.user.id, FEATURES.SETTINGS_CURRENCIES);
+if (!allowed) return Astro.redirect('/');
+
+const currencies = await getCurrencyConfig();
+---
+
+<AdminLayout title="Currencies" activeNav="settings.currencies">
+  <div class="bg-ds-card border border-ds-line rounded-[10px] p-6 shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+    <CurrenciesPanel client:load initial={currencies} />
+  </div>
+</AdminLayout>

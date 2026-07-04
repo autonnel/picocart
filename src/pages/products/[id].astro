@@ -1,0 +1,52 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/permissions';
+import { getProductRepository } from '@/lib/repositories/product.repository';
+import { getCurrencyConfig } from '@/lib/dashboard/currencies';
+import { isStorageConfigured } from '@/lib/dashboard/storage-config';
+import ProductForm from '@/components/products/ProductForm';
+import { omitTenantId } from '@/lib/api-helpers';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.PRODUCTS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const id = Astro.params.id;
+if (!id) {
+  return Astro.redirect('/products');
+}
+
+const repo = getProductRepository();
+const product = await repo.getById(id);
+if (!product) {
+  return Astro.redirect('/products');
+}
+
+const currencyConfig = await getCurrencyConfig();
+const storageConfigured = await isStorageConfigured();
+
+const initialPlain = JSON.parse(JSON.stringify(product, omitTenantId));
+
+const breadcrumbs = [
+  { label: 'Picocart', href: '/' },
+  { label: 'Products', href: '/products' },
+  { label: product.title },
+];
+---
+
+<AdminLayout title={product.title} activeNav="products" breadcrumbs={breadcrumbs}>
+  <ProductForm
+    client:load
+    mode="edit"
+    initialProduct={initialPlain}
+    currencies={currencyConfig.list}
+    storageConfigured={storageConfigured}
+  />
+</AdminLayout>

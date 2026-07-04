@@ -1,0 +1,36 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/permissions';
+import { getCurrencyConfig } from '@/lib/dashboard/currencies';
+import { isStorageConfigured } from '@/lib/dashboard/storage-config';
+import ProductForm from '@/components/products/ProductForm';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.PRODUCTS_WRITE);
+if (!hasAccess) {
+  return Astro.redirect('/products');
+}
+
+const currencyConfig = await getCurrencyConfig();
+const storageConfigured = await isStorageConfigured();
+
+const breadcrumbs = [
+  { label: 'Picocart', href: '/' },
+  { label: 'Products', href: '/products' },
+  { label: 'New' },
+];
+---
+
+<AdminLayout title="New product" activeNav="products" breadcrumbs={breadcrumbs}>
+  <ProductForm
+    client:load
+    mode="create"
+    currencies={currencyConfig.list}
+    storageConfigured={storageConfigured}
+  />
+</AdminLayout>

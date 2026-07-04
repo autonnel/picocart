@@ -1,0 +1,21 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/permissions';
+import { getStorageConfigPublic } from '@/lib/dashboard/storage-config';
+import StoragePanel from '@/components/settings/StoragePanel';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) return Astro.redirect('/login');
+
+const allowed = await userHasFeature(auth.user.id, FEATURES.SETTINGS_STORAGE);
+if (!allowed) return Astro.redirect('/');
+
+const storage = await getStorageConfigPublic();
+---
+
+<AdminLayout title="Storage" activeNav="settings.storage">
+  <div class="bg-ds-card border border-ds-line rounded-[10px] p-6 shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+    <StoragePanel client:load initial={storage} />
+  </div>
+</AdminLayout>

@@ -1,0 +1,154 @@
+---
+import AuthLayout from '@/layouts/AuthLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { prisma } from '@/lib/db';
+import { getCurrentTenantId } from '@/lib/tenant/context';
+
+const auth = await checkAuth(Astro);
+if (auth.authenticated) {
+  return Astro.redirect('/overview', 302);
+}
+
+const tenantId = getCurrentTenantId();
+const userCount = await prisma.user.count({ where: { tenantId } });
+const isFirstUser = userCount === 0;
+
+const url = new URL(Astro.request.url);
+const token = url.searchParams.get('token')?.trim() || '';
+
+let prefillEmail = '';
+let invitationError = '';
+let mode: 'first' | 'invitation' | 'closed' = 'closed';
+
+if (isFirstUser) {
+  mode = 'first';
+} else if (token) {
+  const inv = await prisma.userInvitation.findUnique({ where: { token } });
+  if (!inv || inv.tenantId !== tenantId) {
+    invitationError = 'Invalid invitation token';
+  } else if (inv.acceptedAt) {
+    invitationError = 'Invitation already used';
+  } else if (inv.expiresAt < new Date()) {
+    invitationError = 'Invitation expired';
+  } else {
+    mode = 'invitation';
+    prefillEmail = inv.email;
+  }
+}
+
+if (mode === 'closed') {
+  if (invitationError) {
+    // fall through to render error page
+  } else {
+    return Astro.redirect('/login', 302);
+  }
+}
+
+const heading =
+  mode === 'first' ? 'Set up your admin account' : mode === 'invitation' ? 'Accept invitation' : 'Registration unavailable';
+const subheading =
+  mode === 'first'
+    ? 'You are creating the first user. This account becomes the administrator.'
+    : mode === 'invitation'
+      ? 'Choose a username and password to complete registration.'
+      : invitationError;
+---
+
+<AuthLayout title="Register · Picocart">
+  <main class="min-h-screen flex items-center justify-center bg-ds-app p-6">
+    <div class="w-full max-w-sm">
+      <div class="bg-ds-card border border-ds-line rounded-[12px] p-6 shadow-sm">
+        <h1 class="text-[18px] font-semibold text-ds-ink mb-1">{heading}</h1>
+        <p class="text-[12px] text-ds-muted mb-5">{subheading}</p>
+
+        {mode !== 'closed' && (
+          <form id="register-form" class="flex flex-col gap-3" data-token={token} data-mode={mode}>
+            <label class="flex flex-col gap-1">
+              <span class="text-[12px] text-ds-muted">Username</span>
+              <input
+                required
+                minlength="3"
+                autocomplete="username"
+                name="username"
+                class="h-9 px-3 text-[13px] bg-white border border-ds-line rounded-[7px] focus:outline-none focus:ring-2 focus:ring-ds-accent"
+              />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-[12px] text-ds-muted">Email {mode === 'first' ? '(optional)' : ''}</span>
+              <input
+                type="email"
+                autocomplete="email"
+                name="email"
+                value={prefillEmail}
+                readonly={mode === 'invitation'}
+                class:list={[
+                  'h-9 px-3 text-[13px] bg-white border border-ds-line rounded-[7px] focus:outline-none focus:ring-2 focus:ring-ds-accent',
+                  mode === 'invitation' && 'bg-ds-app text-ds-muted cursor-not-allowed',
+                ]}
+              />
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-[12px] text-ds-muted">Password (min 8 chars)</span>
+              <input
+                required
+                minlength="8"
+                autocomplete="new-password"
+                name="password"
+                type="password"
+                class="h-9 px-3 text-[13px] bg-white border border-ds-line rounded-[7px] focus:outline-none focus:ring-2 focus:ring-ds-accent"
+              />
+            </label>
+            <p id="register-error" class="text-[12px] text-red-600 hidden"></p>
+            <button
+              type="submit"
+              class="h-9 px-3 text-[13px] font-medium rounded-[7px] bg-ds-ink text-ds-card hover:bg-[#1F2937] transition-colors"
+            >
+              {mode === 'first' ? 'Create admin account' : 'Accept and sign in'}
+            </button>
+          </form>
+        )}
+
+        <p class="text-[12px] text-ds-muted mt-4">
+          Already have an account?
+          <a href="/login" class="text-ds-accent hover:underline">Sign in</a>
+        </p>
+      </div>
+    </div>
+  </main>
+</AuthLayout>
+
+<script is:inline>
+  const form = document.getElementById('register-form');
+  const errorEl = document.getElementById('register-error');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (errorEl) {
+      errorEl.classList.add('hidden');
+      errorEl.textContent = '';
+    }
+    const data = new FormData(form);
+    const payload = {
+      username: data.get('username'),
+      password: data.get('password'),
+      email: data.get('email') || undefined,
+      invitationToken: form.dataset.mode === 'invitation' ? form.dataset.token : undefined,
+    };
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      window.location.href = '/overview';
+      return;
+    }
+    let message = 'Registration failed';
+    try {
+      message = (await res.json()).error || message;
+    } catch {}
+    if (errorEl) {
+      errorEl.textContent = message;
+      errorEl.classList.remove('hidden');
+    }
+  });
+</script>

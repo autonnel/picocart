@@ -1,0 +1,107 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { checkAuth } from '@/lib/auth/middleware';
+import { userHasFeature, FEATURES } from '@/lib/permissions';
+import { getCustomerRepository } from '@/lib/repositories/customer.repository';
+import { prisma } from '@/lib/db';
+import { withTenantWhere } from '@/lib/repositories/tenant-helpers';
+import { getCurrencyConfig } from '@/lib/dashboard/currencies';
+import CustomerCard from '@/components/customers/CustomerCard';
+
+const auth = await checkAuth(Astro);
+if (!auth.authenticated || !auth.user) {
+  return Astro.redirect('/login');
+}
+
+const hasAccess = await userHasFeature(auth.user.id, FEATURES.CUSTOMERS);
+if (!hasAccess) {
+  return Astro.redirect('/');
+}
+
+const id = Astro.params.id;
+if (!id) return Astro.redirect('/customers');
+
+const repo = getCustomerRepository();
+const customer = await repo.getById(id);
+if (!customer) return Astro.redirect('/customers');
+
+const orders = await prisma.order.findMany({
+  where: withTenantWhere({ customerId: id }),
+  orderBy: { createdAt: 'desc' },
+  take: 50,
+});
+
+const currencyConfig = await getCurrencyConfig();
+
+function fmtAmount(amount: any, currency: string): string {
+  const n = Number(amount);
+  if (!isFinite(n)) return '—';
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency || 'USD' }).format(n);
+  } catch {
+    return `${n.toFixed(2)} ${currency}`;
+  }
+}
+function fmtDate(d: Date): string {
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+const breadcrumbs = [
+  { label: 'Picocart', href: '/' },
+  { label: 'Customers', href: '/customers' },
+  { label: customer.email },
+];
+---
+
+<AdminLayout
+  title={customer.email}
+  activeNav="customers"
+  breadcrumbs={breadcrumbs}
+>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div>
+      <CustomerCard
+        client:load
+        email={customer.email}
+        firstName={customer.firstName}
+        lastName={customer.lastName}
+        phone={customer.phone}
+        ordersCount={customer.ordersCount}
+        totalSpent={Number(customer.totalSpent)}
+        currencyCode={currencyConfig.default}
+      />
+    </div>
+
+    <div class="lg:col-span-2">
+      <div class="bg-ds-card border border-ds-line rounded-[10px] shadow-[0_1px_2px_rgba(17,24,39,.04)]">
+        <div class="px-6 pt-5 pb-3 text-[14px] font-semibold text-ds-ink">Orders</div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse">
+            <thead class="bg-ds-surface2 border-b border-ds-line">
+              <tr>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Order #</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Date</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-left">Status</th>
+                <th class="px-4 py-2.5 text-[11.5px] uppercase tracking-[0.02em] font-medium text-ds-muted text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.length === 0 ? (
+                <tr><td colspan="4" class="px-4 py-10 text-center text-[13px] text-ds-muted">No orders.</td></tr>
+              ) : orders.map((o) => (
+                <tr class="hover:bg-ds-surface2 transition-colors">
+                  <td class="px-4 py-3 text-[13.5px] border-b border-[#F3F4F6]">
+                    <a href={`/orders/${o.id}`} class="text-ds-ink font-medium hover:underline no-underline font-ds-mono tabular">#{o.orderNumber}</a>
+                  </td>
+                  <td class="px-4 py-3 text-[13.5px] text-ds-slate border-b border-[#F3F4F6]">{fmtDate(o.createdAt)}</td>
+                  <td class="px-4 py-3 text-[12.5px] text-ds-ink border-b border-[#F3F4F6]">{o.financialStatus.toLowerCase().replaceAll('_', ' ')}</td>
+                  <td class="px-4 py-3 text-[13.5px] text-ds-ink font-ds-mono tabular border-b border-[#F3F4F6] text-right">{fmtAmount(o.totalPrice, o.currencyCode)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</AdminLayout>
