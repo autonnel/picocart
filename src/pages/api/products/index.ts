@@ -4,6 +4,8 @@ import { withAuth, jsonResponse, jsonError } from '@/lib/api-helpers';
 import { FEATURES } from '@/lib/permissions';
 import { getProductRepository } from '@/lib/repositories/product.repository';
 import type { ProductStatus } from '@prisma/client';
+import { getCurrencyConfig } from '@/lib/dashboard/currencies';
+import { forceDefaultCurrencyManual } from '@/lib/pricing/auto-price';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('Api:Products');
@@ -23,6 +25,7 @@ const VariantPriceSchema = z.object({
   currencyCode: z.string().min(1),
   price: z.union([z.number(), z.string()]),
   compareAtPrice: z.union([z.number(), z.string(), z.null()]).optional(),
+  isManual: z.boolean().optional(),
 });
 
 const VariantOptionSchema = z.object({
@@ -104,10 +107,11 @@ export const POST: APIRoute = withAuth(FEATURES.PRODUCTS_WRITE, async ({ request
   const repo = getProductRepository();
 
   try {
+    const { default: defaultCurrency } = await getCurrencyConfig();
     const variants =
       !data.variants || data.variants.length === 0
         ? [{ title: 'Default Title', position: 0, prices: [], options: [] }]
-        : data.variants;
+        : forceDefaultCurrencyManual(data.variants, defaultCurrency);
     const product = await repo.create({
       title: data.title,
       handle,

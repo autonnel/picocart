@@ -2,7 +2,12 @@
 // picocart handler and assert every field those clients read is present and
 // not undefined. Repos are faked so no database is required.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const storeConfig = vi.hoisted(() => ({ currencies: undefined as unknown }));
+vi.mock('@/lib/config/get-config', () => ({
+  getConfig: async (key: string) => (key === 'catalog.currencies' ? storeConfig.currencies : undefined),
+}));
 import type { PrismaClient } from '@prisma/client';
 import { executeGraphql } from '@/lib/shopify/graphql/handler';
 import {
@@ -299,12 +304,14 @@ describe('GraphQL golden — Products (DDD nodes/contextualPricing shape)', () =
   });
 
   it('contextualPricing is null (not error) when currency missing', async () => {
+    storeConfig.currencies = { list: ['USD', 'JPY'], default: 'USD' };
     const res = await executeGraphql(
       { query: DDD_PRODUCTS, variables: { cursor: null, pageSize: 50, country: 'JP' } },
       READ,
     );
     const data = dataOf(res);
     expect(data.products.nodes[0].variants.nodes[0].contextualPricing).toBeNull();
+    storeConfig.currencies = undefined;
   });
 });
 

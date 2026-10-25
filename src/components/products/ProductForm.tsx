@@ -1,6 +1,7 @@
 import * as React from 'react';
 import VariantEditor from './VariantEditor';
 import PriceMatrix from './PriceMatrix';
+import type { CurrencyRate } from '@/lib/pricing/auto-price';
 import InventoryToggle from './InventoryToggle';
 import MediaPanel from './MediaPanel';
 import type { ProductDraft, ProductStatus } from './types';
@@ -28,6 +29,8 @@ function slugify(input: string): string {
 export interface ProductFormProps {
   initialProduct?: any;
   currencies: string[];
+  defaultCurrency: string;
+  rates: Record<string, CurrencyRate>;
   storageConfigured: boolean;
   mode: 'create' | 'edit';
 }
@@ -35,6 +38,8 @@ export interface ProductFormProps {
 const ProductForm: React.FC<ProductFormProps> = ({
   initialProduct,
   currencies,
+  defaultCurrency,
+  rates,
   storageConfigured,
   mode,
 }) => {
@@ -218,6 +223,8 @@ const ProductForm: React.FC<ProductFormProps> = ({
           <PriceMatrix
             variants={draft.variants}
             currencies={currencies}
+            defaultCurrency={defaultCurrency}
+            rates={rates}
             onChange={(variants) => setDraft({ ...draft, variants })}
           />
         )}

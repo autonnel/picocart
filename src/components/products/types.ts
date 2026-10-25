@@ -1,3 +1,5 @@
+import { formatPriceInput } from '@/lib/pricing/auto-price';
+
 export type ProductStatus = 'ACTIVE' | 'DRAFT' | 'ARCHIVED';
 
 export interface VariantOptionDraft {
@@ -12,6 +14,7 @@ export interface VariantPriceDraft {
   currencyCode: string;
   price: string;
   compareAtPrice?: string;
+  isManual: boolean;
 }
 
 export interface VariantDraft {
@@ -103,8 +106,9 @@ export function fromServer(input: any): ProductDraft {
       prices: (v.prices ?? []).map((p: any) => ({
         id: p.id,
         currencyCode: p.currencyCode,
-        price: String(p.price ?? ''),
-        compareAtPrice: p.compareAtPrice != null ? String(p.compareAtPrice) : '',
+        price: formatPriceInput(p.price, p.currencyCode ?? ''),
+        compareAtPrice: formatPriceInput(p.compareAtPrice, p.currencyCode ?? ''),
+        isManual: p.isManual !== false,
       })),
     })),
     images: (input.images ?? []).map((img: any, i: number) => ({
@@ -144,6 +148,7 @@ export function toServerPayload(draft: ProductDraft) {
           currencyCode: p.currencyCode,
           price: p.price,
           compareAtPrice: p.compareAtPrice ? p.compareAtPrice : null,
+          isManual: p.isManual,
         })),
     })),
     images: draft.images.map((img, i) => ({

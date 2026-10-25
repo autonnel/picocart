@@ -8,6 +8,9 @@ import type {
   VariantPrice,
 } from '@prisma/client';
 import { prisma } from '@/lib/db';
+import { syncAutoPrices } from '@/lib/pricing/auto-price-sync';
+import { pricesToWrite } from '@/lib/pricing/auto-price';
+import { getCurrencyConfig } from '@/lib/dashboard/currencies';
 import { withTenantData, withTenantWhere } from './tenant-helpers';
 
 export interface VariantOptionInput {
@@ -20,6 +23,7 @@ export interface VariantPriceInput {
   currencyCode: string;
   price: number | string;
   compareAtPrice?: number | string | null;
+  isManual?: boolean;
 }
 
 export interface VariantInput {
@@ -103,6 +107,7 @@ const productInclude = {
 
 export class PrismaProductRepository implements IProductRepository {
   async create(input: CreateProductInput): Promise<ProductWithRelations> {
+    const { rates } = await getCurrencyConfig();
     return prisma.$transaction(async (tx) => {
       const product = await tx.product.create({
         data: withTenantData({
@@ -133,6 +138,7 @@ export class PrismaProductRepository implements IProductRepository {
       }
 
       const variants = input.variants ?? [];
+      const variantIds: string[] = [];
       for (let vi = 0; vi < variants.length; vi++) {
         const v = variants[vi];
         const imageId =
@@ -167,7 +173,9 @@ export class PrismaProductRepository implements IProductRepository {
           });
         }
 
-        for (const p of v.prices ?? []) {
+        variantIds.push(variant.id);
+
+        for (const p of pricesToWrite(v.prices ?? [], rates)) {
           await tx.variantPrice.create({
             data: {
               variantId: variant.id,
@@ -181,6 +189,8 @@ export class PrismaProductRepository implements IProductRepository {
           });
         }
       }
+
+      if (variantIds.length > 0) await syncAutoPrices(tx, { variantIds });
 
       const reloaded = await tx.product.findFirst({
         where: { id: product.id },

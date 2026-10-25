@@ -1,16 +1,19 @@
 // Picocart Astro Integration entry point.
 //
-// Registers the picocart middleware. Page route injection is wired up by the
-// host project until the npm-package distribution is standardised.
+// Registers the picocart middleware and injects the core pages, so a host project
+// (an overlay deployment) only adds or replaces the routes it customises.
 
 import type { AstroIntegration } from 'astro';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { TenantResolver } from '../lib/tenant/types';
+import { corePagesDir, enumerateCoreRoutes, filterRoutes } from './inject-routes';
 
 export interface PicocartOptions {
   tenantResolver?: TenantResolver;
+  // Core route patterns (e.g. '/login') the host serves itself instead.
+  excludeRoutes?: string[];
 }
 
 const PACKAGE_NAME = 'picocart';
@@ -34,7 +37,7 @@ export default function picocart(options: PicocartOptions = {}): AstroIntegratio
   return {
     name: 'picocart',
     hooks: {
-      'astro:config:setup': async ({ addMiddleware, logger }) => {
+      'astro:config:setup': async ({ addMiddleware, injectRoute, logger }) => {
         logger.info(`picocart v${version} initializing`);
 
         try {
@@ -50,6 +53,12 @@ export default function picocart(options: PicocartOptions = {}): AstroIntegratio
         }
 
         addMiddleware({ entrypoint: middlewareSpecifier, order: 'pre' });
+
+        // Injected pages are core source files importing via `@/...`; the host resolves that
+        // alias to the package src (definePicocartCloudflareConfig in ./cloudflare-preset does it).
+        for (const route of filterRoutes(enumerateCoreRoutes(corePagesDir(import.meta.url)), options.excludeRoutes)) {
+          injectRoute({ pattern: route.pattern, entrypoint: route.entrypoint });
+        }
       },
     },
   };

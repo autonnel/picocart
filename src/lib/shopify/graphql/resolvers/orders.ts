@@ -14,6 +14,8 @@ export interface UserError {
 interface OrderInputLine {
   variantId?: string | null;
   quantity?: number | null;
+  priceSet?: { shopMoney?: { amount: string; currencyCode: string } };
+  originalUnitPriceWithCurrency?: { amount: string; currencyCode: string };
 }
 
 interface OrderInputShape {
@@ -24,6 +26,20 @@ interface OrderInputShape {
   note?: string | null;
   tags?: string[];
   financialStatus?: string | null;
+  currency?: string;
+  presentmentCurrencyCode?: string;
+  discountCode?: { orderFixedDiscountCode?: { code?: string; amountSet?: { shopMoney?: { amount: string } } } };
+  appliedDiscount?: { value?: number | string; valueType?: string };
+}
+
+function requestedDiscount(input: OrderInputShape): number {
+  const fromCode = input.discountCode?.orderFixedDiscountCode?.amountSet?.shopMoney?.amount;
+  const applied = input.appliedDiscount;
+  const raw = fromCode ?? (applied?.valueType === 'FIXED_AMOUNT' ? applied.value : undefined);
+  if (raw === undefined) return 0;
+  const amount = Number(raw);
+  if (!Number.isFinite(amount) || amount < 0) throw new Error(`Invalid discount amount: ${raw}`);
+  return amount;
 }
 
 function toBase64Url(json: string): string {
@@ -53,7 +69,9 @@ async function buildLineItems(
   const fallbackCurrency = await getDefaultCurrencyCode();
   const lines: OrderLineItemInput[] = [];
   let subtotal = 0;
-  let currency: string | null = null;
+  // Older clients send no currency; with auto-pricing a variant has several price rows in no
+  // defined order, so the order must fall back to the store default, never to the first row.
+  const currency = (input.currency ?? input.presentmentCurrencyCode)?.toUpperCase() || fallbackCurrency;
 
   for (const li of input.lineItems ?? []) {
     const quantity = li.quantity ?? 1;
@@ -67,13 +85,16 @@ async function buildLineItems(
       lines.push({ variantId, title: 'Item', quantity, price: '0.00' });
       continue;
     }
-    if (!currency) {
-      currency = variant.prices[0]?.currencyCode ?? fallbackCurrency;
+    const sentAmount = li.priceSet?.shopMoney?.amount ?? li.originalUnitPriceWithCurrency?.amount;
+    let unit: number;
+    if (sentAmount !== undefined) {
+      unit = Number(sentAmount);
+      if (!Number.isFinite(unit) || unit < 0) throw new Error(`Invalid line amount: ${sentAmount}`);
+    } else {
+      const priceRow = variant.prices.find((p) => p.currencyCode.toUpperCase() === currency);
+      if (!priceRow) throw new Error(`No price for variant ${variantId} in ${currency}`);
+      unit = Number(priceRow.price.toString());
     }
-    const priceRow =
-      variant.prices.find((p) => p.currencyCode.toUpperCase() === currency!.toUpperCase()) ??
-      variant.prices[0];
-    const unit = priceRow ? Number(priceRow.price.toString()) : 0;
     subtotal += unit * quantity;
     lines.push({
       variantId,
@@ -85,17 +106,20 @@ async function buildLineItems(
     });
   }
 
-  return { lineItems: lines, subtotal, currency: currency ?? fallbackCurrency };
+  return { lineItems: lines, subtotal, currency };
 }
 
 async function createPaidOrder(input: OrderInputShape) {
+  const requested = requestedDiscount(input);
   const { lineItems, subtotal, currency } = await buildLineItems(input);
   const repo = getOrderRepository();
+  const discount = Math.min(requested, subtotal);
   const createInput: CreateOrderInput = {
     email: input.email ?? null,
     financialStatus: 'PAID',
-    totalPrice: subtotal.toFixed(2),
+    totalPrice: (subtotal - discount).toFixed(2),
     subtotalPrice: subtotal.toFixed(2),
+    ...(discount > 0 ? { discountPrice: discount.toFixed(2) } : {}),
     currencyCode: currency,
     shippingAddress: (input.shippingAddress ?? undefined) as Prisma.InputJsonValue | undefined,
     billingAddress: (input.billingAddress ?? undefined) as Prisma.InputJsonValue | undefined,

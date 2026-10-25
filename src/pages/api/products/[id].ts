@@ -6,6 +6,9 @@ import { getProductRepository } from '@/lib/repositories/product.repository';
 import { prisma } from '@/lib/db';
 import { withTenantWhere } from '@/lib/repositories/tenant-helpers';
 import { Prisma } from '@prisma/client';
+import { syncAutoPrices } from '@/lib/pricing/auto-price-sync';
+import { getCurrencyConfig } from '@/lib/dashboard/currencies';
+import { forceDefaultCurrencyManual, pricesToWrite } from '@/lib/pricing/auto-price';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('Api:ProductDetail');
@@ -16,6 +19,7 @@ const VariantPriceSchema = z.object({
   currencyCode: z.string().min(1),
   price: z.union([z.number(), z.string()]),
   compareAtPrice: z.union([z.number(), z.string(), z.null()]).optional(),
+  isManual: z.boolean().optional(),
 });
 
 const VariantOptionSchema = z.object({
@@ -90,6 +94,8 @@ export const PUT: APIRoute = withAuth(FEATURES.PRODUCTS_WRITE, async ({ params, 
     });
     if (!existing) return jsonError('Not found', 404);
 
+    const { default: defaultCurrency, rates } = await getCurrencyConfig();
+
     await prisma.$transaction(async (tx) => {
       const productData: Prisma.ProductUpdateInput = {};
       if (data.title !== undefined) productData.title = data.title;
@@ -137,7 +143,7 @@ export const PUT: APIRoute = withAuth(FEATURES.PRODUCTS_WRITE, async ({ params, 
         const incomingVariants =
           data.variants.length === 0
             ? [{ title: 'Default Title', position: 0, options: [], prices: [] }]
-            : data.variants;
+            : forceDefaultCurrencyManual(data.variants, defaultCurrency);
         const incomingIds = new Set(
           incomingVariants.filter((v) => v.id).map((v) => v.id as string),
         );
@@ -196,7 +202,7 @@ export const PUT: APIRoute = withAuth(FEATURES.PRODUCTS_WRITE, async ({ params, 
           }
 
           await tx.variantPrice.deleteMany({ where: { variantId } });
-          for (const p of v.prices ?? []) {
+          for (const p of pricesToWrite(v.prices ?? [], rates)) {
             await tx.variantPrice.create({
               data: {
                 variantId,
@@ -210,6 +216,11 @@ export const PUT: APIRoute = withAuth(FEATURES.PRODUCTS_WRITE, async ({ params, 
             });
           }
         }
+        const variantIds = await tx.productVariant.findMany({
+          where: { productId: id },
+          select: { id: true },
+        });
+        await syncAutoPrices(tx, { variantIds: variantIds.map((row) => row.id) });
       }
     });
 

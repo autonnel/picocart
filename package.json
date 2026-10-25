@@ -1,6 +1,7 @@
 {
   "name": "picocart",
   "version": "0.0.1",
+  "packageManager": "pnpm@11.18.0",
   "description": "Picocart — Open-source headless commerce, distributed as an Astro Integration",
   "license": "Apache-2.0",
   "author": "autonnel team",
@@ -24,6 +25,10 @@
     },
     "./cli": {
       "import": "./dist/cli/index.js"
+    },
+    "./cloudflare": {
+      "types": "./dist/integration/cloudflare-preset.d.ts",
+      "import": "./dist/integration/cloudflare-preset.js"
     },
     "./adapters/*": {
       "import": "./dist/lib/adapters/*/index.js"
@@ -123,6 +128,7 @@
     "@types/react-dom": "^18.2.18",
     "@vitest/coverage-v8": "^3.2.4",
     "typescript": "^5.8.3",
+    "vite": "7.3.2",
     "vitest": "^3.2.4",
     "wrangler": "^4.81.1"
   }

@@ -11,6 +11,7 @@ const repoRoot = resolve(here, '..');
 const REQUIRED = [
   'dist/integration/index.js',
   'dist/integration/index.d.ts',
+  'dist/integration/cloudflare-preset.js',
   'dist/cli/index.js',
   'dist/lib/tenant/index.js',
 ];

@@ -23,6 +23,12 @@ const _pg: any = isCloudflareRuntime()
 // AsyncLocalStorage. Hyperdrive handles connection pooling externally.
 const _requestStore = new AsyncLocalStorage<{ prisma: PrismaClient | null }>();
 
+// Lets a deployment share a database with others by keeping its tables in a non-public schema.
+function adapterOptions() {
+  const schema = getEnv('DATABASE_SCHEMA');
+  return schema ? { schema } : undefined;
+}
+
 function getPrisma(): PrismaClient {
   if (isCloudflareRuntime()) {
     const store = _requestStore.getStore();
@@ -31,7 +37,7 @@ function getPrisma(): PrismaClient {
     const hyperdrive = getBinding<{ connectionString: string }>('HYPERDRIVE');
     const connectionString = hyperdrive?.connectionString || getEnv('DATABASE_URL');
     if (!connectionString) throw new Error('No database connection string (HYPERDRIVE or DATABASE_URL)');
-    const adapter = new PrismaPg({ connectionString });
+    const adapter = new PrismaPg({ connectionString }, adapterOptions());
     const client = new PrismaClient({ adapter });
 
     if (store) store.prisma = client;
@@ -52,7 +58,7 @@ function getPrisma(): PrismaClient {
   if (!globalThis.pgPool) {
     globalThis.pgPool = new _pg.Pool({ connectionString });
   }
-  const adapter = new PrismaPg(globalThis.pgPool);
+  const adapter = new PrismaPg(globalThis.pgPool, adapterOptions());
   _prisma = new PrismaClient({ adapter });
   globalThis.prisma = _prisma;
   return _prisma;

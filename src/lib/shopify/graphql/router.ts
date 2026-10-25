@@ -8,6 +8,7 @@ import {
 } from './resolvers/orders';
 import { resolveOrderFulfillments } from './resolvers/fulfillments';
 import { resolveRefundCreate } from './resolvers/refunds';
+import { resolveCurrencyRates } from './resolvers/currency-rates';
 
 export type GraphqlVariables = Record<string, unknown>;
 
@@ -29,6 +30,7 @@ const OPERATIONS: Record<string, OperationDef> = {
   OrderCreate: { resolve: resolveOrderCreate, requiresWrite: true },
   DraftOrderCreate: { resolve: resolveDraftOrderCreate, requiresWrite: true },
   DraftOrderComplete: { resolve: resolveDraftOrderComplete, requiresWrite: true },
+  CurrencyRates: { resolve: resolveCurrencyRates, requiresWrite: false },
   RefundCreate: { resolve: resolveRefundCreate, requiresWrite: true },
 };
 

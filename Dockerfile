@@ -5,10 +5,11 @@ RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/
 
 WORKDIR /app
 
-COPY package*.json ./
+RUN npm install -g pnpm@11.18.0
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY prisma ./prisma/
 
-RUN npm ci
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 
@@ -25,9 +26,10 @@ RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/
 
 WORKDIR /app
 
-COPY package*.json ./
+RUN npm install -g pnpm@11.18.0
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-RUN npm ci --only=production
+RUN pnpm install --frozen-lockfile --prod
 
 COPY prisma ./prisma/
 

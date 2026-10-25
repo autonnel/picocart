@@ -1,0 +1,11 @@
+# Packages allowed to run install scripts (pnpm v11 blocks them by default).
+allowBuilds:
+  '@prisma/engines': true
+  esbuild: true
+  prisma: true
+  sharp: true
+  workerd: true
+
+# The lockfile was imported from npm's package-lock; skip re-fetching full registry
+# metadata for the release-age check, which times out on this network.
+trustLockfile: true

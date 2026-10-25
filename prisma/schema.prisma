@@ -237,6 +237,7 @@ model VariantPrice {
   currencyCode   String
   price          Decimal        @db.Decimal(12, 2)
   compareAtPrice Decimal?       @db.Decimal(12, 2)
+  isManual       Boolean        @default(true)
 
   @@unique([variantId, currencyCode])
   @@map("variant_prices")

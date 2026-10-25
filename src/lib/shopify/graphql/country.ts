@@ -37,6 +37,7 @@ const COUNTRY_CURRENCY: Record<string, string> = {
 
 interface CurrenciesConfig {
   default?: string;
+  list?: string[];
   countries?: Record<string, string>;
 }
 
@@ -46,8 +47,15 @@ export async function currencyForCountry(countryCode: string | null | undefined)
   if (code && cfg?.countries && typeof cfg.countries[code] === 'string') {
     return cfg.countries[code].toUpperCase();
   }
-  if (code && COUNTRY_CURRENCY[code]) {
-    return COUNTRY_CURRENCY[code];
+  // The static map only applies to currencies the store sells in; a USD-only store prices every
+  // country in USD instead of resolving CN to an unpriced CNY.
+  // An unconfigured store sells only in its default currency, matching the dashboard default.
+  const enabled = Array.isArray(cfg?.list) && cfg.list.length > 0
+    ? cfg.list.map((c) => c.toUpperCase())
+    : [await getDefaultCurrencyCode()];
+  const mapped = code ? COUNTRY_CURRENCY[code] : undefined;
+  if (mapped && enabled.includes(mapped)) {
+    return mapped;
   }
   return getDefaultCurrencyCode();
 }
