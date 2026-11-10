@@ -4,7 +4,7 @@ import { FEATURES } from '@/lib/permissions';
 import { prisma } from '@/lib/db';
 import { withTenantWhere } from '@/lib/repositories/tenant-helpers';
 import { getStorageConfig } from '@/lib/dashboard/storage-config';
-import { EdgeS3Client } from '@/lib/adapters/storage/s3';
+import { EdgeS3Client, bucketBaseUrl } from '@/lib/adapters/storage/s3';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('Api:ProductUploadImage');
@@ -48,7 +48,7 @@ function buildPublicUrl(opts: {
     return `${publicBaseUrl.replace(/\/$/, '')}/${key}`;
   }
   if (endpoint) {
-    return `${endpoint.replace(/\/$/, '')}/${bucket}/${key}`;
+    return `${bucketBaseUrl(endpoint, bucket)}/${key}`;
   }
   return `https://${bucket}.s3.amazonaws.com/${key}`;
 }

@@ -40,7 +40,11 @@ const VariantSchema = z.object({
   requiresShipping: z.boolean().optional(),
   options: z.array(VariantOptionSchema).optional(),
   prices: z.array(VariantPriceSchema).optional(),
+  imageId: z.string().nullable().optional(),
+  imagePosition: z.number().int().min(0).optional(),
 });
+
+const UPDATE_TRANSACTION_TIMEOUT_MS = 60_000;
 
 const ImageSchema = z.object({
   id: z.string().optional(),
@@ -59,6 +63,12 @@ const UpdateProductSchema = z.object({
   productType: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
   variants: z.array(VariantSchema).optional(),
+  variantChanges: z
+    .object({
+      upsert: z.array(VariantSchema),
+      remove: z.array(z.string()),
+    })
+    .optional(),
   images: z.array(ImageSchema).optional(),
 });
 
@@ -96,6 +106,27 @@ export const PUT: APIRoute = withAuth(FEATURES.PRODUCTS_WRITE, async ({ params, 
 
     const { default: defaultCurrency, rates } = await getCurrencyConfig();
 
+    const existingVariantIds = new Set(existing.variants.map((row) => row.id));
+    let variantPlan: { upsert: z.infer<typeof VariantSchema>[]; remove: string[] } | null = null;
+    if (data.variantChanges !== undefined) {
+      const foreign = data.variantChanges.upsert.find((v) => v.id && !existingVariantIds.has(v.id));
+      if (foreign) return jsonError(`Variant ${foreign.id} does not belong to this product`, 400);
+      variantPlan = {
+        upsert: forceDefaultCurrencyManual(data.variantChanges.upsert, defaultCurrency),
+        remove: data.variantChanges.remove.filter((variantId) => existingVariantIds.has(variantId)),
+      };
+    } else if (data.variants !== undefined) {
+      const incoming =
+        data.variants.length === 0
+          ? [{ title: 'Default Title', position: 0, options: [], prices: [] }]
+          : forceDefaultCurrencyManual(data.variants, defaultCurrency);
+      const incomingIds = new Set(incoming.filter((v) => v.id).map((v) => v.id as string));
+      variantPlan = {
+        upsert: incoming,
+        remove: [...existingVariantIds].filter((variantId) => !incomingIds.has(variantId)),
+      };
+    }
+
     await prisma.$transaction(async (tx) => {
       const productData: Prisma.ProductUpdateInput = {};
       if (data.title !== undefined) productData.title = data.title;
@@ -110,7 +141,9 @@ export const PUT: APIRoute = withAuth(FEATURES.PRODUCTS_WRITE, async ({ params, 
         await tx.product.update({ where: { id }, data: productData });
       }
 
+      let imageIds = [...existing.images].sort((a, b) => a.position - b.position).map((img) => img.id);
       if (data.images !== undefined) {
+        imageIds = [];
         const incomingIds = new Set(
           data.images.filter((i) => i.id).map((i) => i.id as string),
         );
@@ -126,8 +159,9 @@ export const PUT: APIRoute = withAuth(FEATURES.PRODUCTS_WRITE, async ({ params, 
               where: { id: img.id },
               data: { src: img.src, alt: img.alt ?? null, position: img.position ?? i },
             });
+            imageIds.push(img.id);
           } else {
-            await tx.productImage.create({
+            const created = await tx.productImage.create({
               data: {
                 productId: id,
                 src: img.src,
@@ -135,94 +169,77 @@ export const PUT: APIRoute = withAuth(FEATURES.PRODUCTS_WRITE, async ({ params, 
                 position: img.position ?? i,
               },
             });
+            imageIds.push(created.id);
           }
         }
       }
 
-      if (data.variants !== undefined) {
-        const incomingVariants =
-          data.variants.length === 0
-            ? [{ title: 'Default Title', position: 0, options: [], prices: [] }]
-            : forceDefaultCurrencyManual(data.variants, defaultCurrency);
-        const incomingIds = new Set(
-          incomingVariants.filter((v) => v.id).map((v) => v.id as string),
-        );
-        for (const v of existing.variants) {
-          if (!incomingIds.has(v.id)) {
-            await tx.productVariant.delete({ where: { id: v.id } });
-          }
+      const variantImageId = (v: { imageId?: string | null; imagePosition?: number }) => {
+        if (v.imagePosition !== undefined) return imageIds[v.imagePosition] ?? null;
+        if (v.imageId === undefined) return undefined;
+        return v.imageId && imageIds.includes(v.imageId) ? v.imageId : null;
+      };
+
+      if (variantPlan) {
+        for (const variantId of variantPlan.remove) {
+          await tx.productVariant.delete({ where: { id: variantId } });
         }
-        for (let i = 0; i < incomingVariants.length; i++) {
-          const v = incomingVariants[i];
+        const touchedVariantIds: string[] = [];
+        for (let i = 0; i < variantPlan.upsert.length; i++) {
+          const v = variantPlan.upsert[i];
+          const fields = {
+            sku: v.sku ?? null,
+            title: v.title,
+            position: v.position ?? i,
+            inventoryQuantity: v.inventoryQuantity ?? 0,
+            weight: v.weight ?? null,
+            weightUnit: v.weightUnit ?? null,
+            barcode: v.barcode ?? null,
+            requiresShipping: v.requiresShipping ?? true,
+          };
           let variantId: string;
           if (v.id) {
             await tx.productVariant.update({
               where: { id: v.id },
-              data: {
-                sku: v.sku ?? null,
-                title: v.title,
-                position: v.position ?? i,
-                inventoryQuantity: v.inventoryQuantity ?? 0,
-                weight: v.weight ?? null,
-                weightUnit: v.weightUnit ?? null,
-                barcode: v.barcode ?? null,
-                requiresShipping: v.requiresShipping ?? true,
-              },
+              data: { ...fields, imageId: variantImageId(v) },
             });
             variantId = v.id;
           } else {
             const created = await tx.productVariant.create({
-              data: {
-                productId: id,
-                sku: v.sku ?? null,
-                title: v.title,
-                position: v.position ?? i,
-                inventoryQuantity: v.inventoryQuantity ?? 0,
-                weight: v.weight ?? null,
-                weightUnit: v.weightUnit ?? null,
-                barcode: v.barcode ?? null,
-                requiresShipping: v.requiresShipping ?? true,
-              },
+              data: { ...fields, productId: id, imageId: variantImageId(v) ?? null },
             });
             variantId = created.id;
           }
+          touchedVariantIds.push(variantId);
 
           await tx.variantOption.deleteMany({ where: { variantId } });
           const opts = v.options ?? [];
-          for (let oi = 0; oi < opts.length; oi++) {
-            const o = opts[oi];
-            await tx.variantOption.create({
-              data: {
+          if (opts.length > 0) {
+            await tx.variantOption.createMany({
+              data: opts.map((o, oi) => ({
                 variantId,
                 name: o.name,
                 value: o.value,
                 position: o.position ?? oi,
-              },
+              })),
             });
           }
 
           await tx.variantPrice.deleteMany({ where: { variantId } });
-          for (const p of pricesToWrite(v.prices ?? [], rates)) {
-            await tx.variantPrice.create({
-              data: {
-                variantId,
-                currencyCode: p.currencyCode,
-                price: p.price as Prisma.Decimal | number | string,
-                compareAtPrice:
-                  p.compareAtPrice === undefined || p.compareAtPrice === null
-                    ? null
-                    : (p.compareAtPrice as Prisma.Decimal | number | string),
-              },
-            });
-          }
+          const priceRows = pricesToWrite(v.prices ?? [], rates).map((p) => ({
+            variantId,
+            currencyCode: p.currencyCode,
+            price: p.price as Prisma.Decimal | number | string,
+            compareAtPrice:
+              p.compareAtPrice === undefined || p.compareAtPrice === null
+                ? null
+                : (p.compareAtPrice as Prisma.Decimal | number | string),
+          }));
+          if (priceRows.length > 0) await tx.variantPrice.createMany({ data: priceRows });
         }
-        const variantIds = await tx.productVariant.findMany({
-          where: { productId: id },
-          select: { id: true },
-        });
-        await syncAutoPrices(tx, { variantIds: variantIds.map((row) => row.id) });
+        if (touchedVariantIds.length > 0) await syncAutoPrices(tx, { variantIds: touchedVariantIds });
       }
-    });
+    }, { timeout: UPDATE_TRANSACTION_TIMEOUT_MS });
 
     const repo = getProductRepository();
     const fresh = await repo.getById(id);

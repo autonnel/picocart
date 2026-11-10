@@ -45,6 +45,7 @@ const VariantSchema = z.object({
   requiresShipping: z.boolean().optional(),
   options: z.array(VariantOptionSchema).optional(),
   prices: z.array(VariantPriceSchema).optional(),
+  imagePosition: z.number().int().min(0).optional(),
 });
 
 const ImageSchema = z.object({

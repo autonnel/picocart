@@ -26,6 +26,7 @@ export interface VariantDraft {
   inventoryQuantity: number;
   options: VariantOptionDraft[];
   prices: VariantPriceDraft[];
+  imageClientId?: string | null;
 }
 
 export interface ImageDraft {
@@ -80,6 +81,13 @@ export function emptyDraft(): ProductDraft {
 }
 
 export function fromServer(input: any): ProductDraft {
+  const images: ImageDraft[] = (input.images ?? []).map((img: any, i: number) => ({
+    clientId: newClientId(),
+    id: img.id,
+    src: img.src,
+    alt: img.alt,
+    position: img.position ?? i,
+  }));
   return {
     id: input.id,
     title: input.title ?? '',
@@ -110,15 +118,15 @@ export function fromServer(input: any): ProductDraft {
         compareAtPrice: formatPriceInput(p.compareAtPrice, p.currencyCode ?? ''),
         isManual: p.isManual !== false,
       })),
+      imageClientId: images.find((img) => img.id && img.id === v.imageId)?.clientId ?? null,
     })),
-    images: (input.images ?? []).map((img: any, i: number) => ({
-      clientId: newClientId(),
-      id: img.id,
-      src: img.src,
-      alt: img.alt,
-      position: img.position ?? i,
-    })),
+    images,
   };
+}
+
+function variantImageRef(v: VariantDraft, images: ImageDraft[]) {
+  const index = v.imageClientId ? images.findIndex((img) => img.clientId === v.imageClientId) : -1;
+  return index >= 0 ? { imagePosition: index } : { imageId: null };
 }
 
 export function toServerPayload(draft: ProductDraft) {
@@ -150,6 +158,7 @@ export function toServerPayload(draft: ProductDraft) {
           compareAtPrice: p.compareAtPrice ? p.compareAtPrice : null,
           isManual: p.isManual,
         })),
+      ...variantImageRef(v, draft.images),
     })),
     images: draft.images.map((img, i) => ({
       id: img.id,
@@ -158,4 +167,27 @@ export function toServerPayload(draft: ProductDraft) {
       position: img.position ?? i,
     })),
   };
+}
+
+type ServerPayload = ReturnType<typeof toServerPayload>;
+
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+export function toServerPatch(draft: ProductDraft, baseline: ProductDraft): Partial<ServerPayload> & {
+  variantChanges?: { upsert: ServerPayload['variants']; remove: string[] };
+} {
+  const next = toServerPayload(draft);
+  const prev = toServerPayload(baseline);
+  const patch: Record<string, unknown> = {};
+  for (const key of ['title', 'handle', 'description', 'status', 'trackInventory', 'vendor', 'productType', 'tags'] as const) {
+    if (!sameValue(next[key], prev[key])) patch[key] = next[key];
+  }
+  if (!sameValue(next.images, prev.images)) patch.images = next.images;
+
+  const prevById = new Map(prev.variants.filter((v) => v.id).map((v) => [v.id as string, v]));
+  const upsert = next.variants.filter((v) => !v.id || !sameValue(v, prevById.get(v.id)));
+  const keptIds = new Set(next.variants.filter((v) => v.id).map((v) => v.id as string));
+  const remove = [...prevById.keys()].filter((id) => !keptIds.has(id));
+  if (upsert.length > 0 || remove.length > 0) patch.variantChanges = { upsert, remove };
+  return patch;
 }

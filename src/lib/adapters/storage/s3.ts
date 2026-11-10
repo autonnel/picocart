@@ -8,9 +8,20 @@ export interface EdgeS3Config {
   bucket: string;
 }
 
+// Virtual-hosted endpoints (bucket already in the hostname, required by Aliyun OSS) must not repeat the bucket in the path.
+export function bucketBaseUrl(endpoint: string, bucket: string): string {
+  const origin = endpoint.replace(/\/+$/, '');
+  try {
+    if (new URL(origin).hostname.startsWith(`${bucket}.`)) return origin;
+  } catch {
+    // fall through to path-style
+  }
+  return `${origin}/${bucket}`;
+}
+
 export class EdgeS3Client {
   private client: AwsClient;
-  private endpoint: string;
+  private bucketUrl: string;
   private bucket: string;
 
   constructor(config: EdgeS3Config) {
@@ -20,12 +31,12 @@ export class EdgeS3Client {
       service: 's3',
       region: config.region || 'auto',
     });
-    this.endpoint = config.endpoint.replace(/\/$/, '');
+    this.bucketUrl = bucketBaseUrl(config.endpoint, config.bucket);
     this.bucket = config.bucket;
   }
 
   private url(key: string): string {
-    return `${this.endpoint}/${this.bucket}/${key}`;
+    return `${this.bucketUrl}/${key}`;
   }
 
   async putObject(
@@ -86,7 +97,7 @@ export class EdgeS3Client {
     let continuationToken: string | undefined;
 
     do {
-      let url = `${this.endpoint}/${this.bucket}?list-type=2&prefix=${encodeURIComponent(prefix)}&max-keys=${maxKeys}`;
+      let url = `${this.bucketUrl}?list-type=2&prefix=${encodeURIComponent(prefix)}&max-keys=${maxKeys}`;
       if (continuationToken) {
         url += `&continuation-token=${encodeURIComponent(continuationToken)}`;
       }

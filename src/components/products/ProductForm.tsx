@@ -5,7 +5,7 @@ import type { CurrencyRate } from '@/lib/pricing/auto-price';
 import InventoryToggle from './InventoryToggle';
 import MediaPanel from './MediaPanel';
 import type { ProductDraft, ProductStatus } from './types';
-import { emptyDraft, fromServer, toServerPayload } from './types';
+import { emptyDraft, fromServer, toServerPatch, toServerPayload } from './types';
 
 type TabKey = 'general' | 'variants' | 'pricing' | 'inventory' | 'media';
 
@@ -46,6 +46,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
   const [draft, setDraft] = React.useState<ProductDraft>(() =>
     initialProduct ? fromServer(initialProduct) : emptyDraft(),
   );
+  const baseline = React.useRef<ProductDraft | null>(initialProduct ? fromServer(initialProduct) : null);
   const [tab, setTab] = React.useState<TabKey>('general');
   const [saving, setSaving] = React.useState(false);
   const [message, setMessage] = React.useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
@@ -60,7 +61,11 @@ const ProductForm: React.FC<ProductFormProps> = ({
     setSaving(true);
     setMessage(null);
     try {
-      const payload = toServerPayload(draft);
+      const payload = mode === 'edit' && baseline.current ? toServerPatch(draft, baseline.current) : toServerPayload(draft);
+      if (mode === 'edit' && Object.keys(payload).length === 0) {
+        setMessage({ tone: 'ok', text: 'No changes to save' });
+        return;
+      }
       const url = mode === 'create' ? '/api/products' : `/api/products/${draft.id}`;
       const method = mode === 'create' ? 'POST' : 'PUT';
       const res = await fetch(url, {
@@ -77,7 +82,9 @@ const ProductForm: React.FC<ProductFormProps> = ({
       if (mode === 'create' && data.product?.id) {
         window.location.href = `/products/${data.product.id}`;
       } else if (data.product) {
-        setDraft(fromServer(data.product));
+        const saved = fromServer(data.product);
+        baseline.current = saved;
+        setDraft(saved);
       }
     } catch (err) {
       setMessage({ tone: 'bad', text: (err as Error).message });
@@ -215,6 +222,7 @@ const ProductForm: React.FC<ProductFormProps> = ({
         {tab === 'variants' && (
           <VariantEditor
             variants={draft.variants}
+            images={draft.images}
             onChange={(variants) => setDraft({ ...draft, variants })}
           />
         )}
